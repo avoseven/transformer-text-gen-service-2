@@ -1,0 +1,26 @@
+# docker/Dockerfile.api
+FROM python:3.10-slim
+
+WORKDIR /code
+
+# System依存関係のInstall
+RUN apt-get update && \
+    # 最低限必要なパッケージだけをインストールし、推奨パッケージはインストールしません
+    apt-get install -y --no-install-recommends \
+    gcc \
+    # updateにより保存された不要Packagesを削除してImage sizeを小さくする
+    && rm -rf /var/lib/apt/lists/*
+
+# Python依存関係のInstall
+COPY docker/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV PYTHONPATH=/code/app
+
+# Port解放
+EXPOSE 8000
+
+# 本番用の起動Command（ホットリロードなし）
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

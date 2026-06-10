@@ -1,0 +1,9 @@
+# Python
+__pycache__
+
+# Outputs
+/outputs/
+/flagged/
+
+# Singularity
+*.sif
