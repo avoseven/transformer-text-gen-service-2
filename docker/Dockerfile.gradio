@@ -15,12 +15,18 @@ RUN apt-get update && \
 COPY docker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+#COPY . .
+COPY app/ app/
+COPY configs/ configs/
+COPY data/ data/
+COPY outputs/ outputs/
 
-ENV PYTHONPATH=/code/app
+#ENV PYTHONPATH=/code/app
+ENV PYTHONPATH=/code:/code/app
 
 # Port解放
 EXPOSE 7860
 
 # Gradio UIの起動Command
-CMD ["python", "-u", "app/gradio_ui.py"]
+#CMD ["python", "-u", "app/gradio_ui.py"]
+CMD ["python", "-u", "-m", "app.gradio_ui"]

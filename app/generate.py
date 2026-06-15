@@ -7,25 +7,30 @@ from data.tokenizer import JapaneseTokenizer
 import argparse
 from utils import model_init
 
+from pathlib import Path
+
 # FastAPIから呼び出すためのクラスにリファクタリング
 class Generator:
     def __init__(self, ckpt=None):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        config = load_config()
+        ROOT_DIR = Path(__file__).resolve().parent.parent
+        CONFIG_PATH = ROOT_DIR / 'configs/model_config.yaml'
+        config = load_config(str(CONFIG_PATH))
         self.m_cfg = config['model']
         self.t_cfg = config['train']
         self.p_cfg = config['paths']
 
         # Tokenizer
-        self.tokenizer = JapaneseTokenizer(self.p_cfg['tokenizer_model'])
+        TOKENIZER_PATH = ROOT_DIR / self.p_cfg['tokenizer_model']
+        #self.tokenizer = JapaneseTokenizer(self.p_cfg['tokenizer_model'])
+        self.tokenizer = JapaneseTokenizer(str(TOKENIZER_PATH))
 
         # チェックポイントの決定
+        CHECKPOINT_DIR = ROOT_DIR / self.p_cfg['checkpoint_dir']
         try:
-            checkpoint = select_checkpoint(config['paths']['checkpoint_dir'], self.device, ckpt)
-            #checkpoint = select_checkpoint(config['paths']['checkpoint_dir'], self.device)
+            #checkpoint = select_checkpoint(config['paths']['checkpoint_dir'], self.device, ckpt)
+            checkpoint = select_checkpoint(str(CHECKPOINT_DIR), self.device, ckpt)
         except FileNotFoundError as e:
-            #print(e)
-            #return  # プログラムを終了
             raise e # returnするとInstance生成が不完全になるらしいので
 
         # Model
@@ -35,8 +40,11 @@ class Generator:
     def generate(self, prompt, max_new_tokens=50, temperature=1.0, top_k=None):
         return generate(self.model, self.tokenizer, prompt, max_new_tokens=max_new_tokens, temperature=temperature, top_k=top_k, device=self.device)
 
-def load_config(config_path="configs/model_config.yaml"):
-    with open(config_path, "r") as f:
+#def load_config(config_path="configs/model_config.yaml"):
+def load_config(config_path=None):
+    CONFIG_PATH = config_path if config_path is not None else "configs/model_config.yaml"
+        
+    with open(CONFIG_PATH, "r") as f:
         return yaml.safe_load(f)
 
 @torch.no_grad()

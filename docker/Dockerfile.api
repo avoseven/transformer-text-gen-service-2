@@ -15,12 +15,18 @@ RUN apt-get update && \
 COPY docker/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+#COPY . .
+COPY app/ app/
+COPY configs/ configs/
+COPY data/ data/
+COPY outputs/ outputs/
 
-ENV PYTHONPATH=/code/app
+#ENV PYTHONPATH=/code/app
+ENV PYTHONPATH=/code:/code/app
 
 # Port解放
 EXPOSE 8000
 
 # 本番用の起動Command（ホットリロードなし）
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

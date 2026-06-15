@@ -1,6 +1,23 @@
 # transformer-text-gen-service
 Transformer decoderのService化
 
+## Command
+- Singularity Container更新Flow
+    - Build
+        - `docker build -t avoseven/transformer-text-gen-service:api -f docker/Dockerfile.api .`
+    - Push
+        - `docker push avoseven/transformer-text-gen-service:api`
+    - Pull
+        - `singularity pull --force docker://avoseven/transformer-text-gen-service:api`
+- 起動
+    - 通常起動
+        - `singularity run transformer-text-gen-service_api.sif`
+    - net指定起動
+        - `sudo singularity run --net --network-args "portmap=8000:8000/tcp"   transformer-text-gen-service_api.sif`
+- pwd
+    - `singularity exec transformer-text-gen-service_api.sif pwd`
+- Container動作確認 (応答確認)
+    - `curl http://127.0.0.1:8000`
 
 ## 進捗
 - [x] setup (docker/Dockerfile, docker/requirements.txt, docker-compose.yml)
@@ -31,10 +48,13 @@ Transformer decoderのService化
     - [x] Docker Hubへの登録
     - [x] Docker ImageのBuild
     - [x] Docker HubへのPush
-- [ ] Singularityでの起動確認（ローカル）
+- [x] Singularityでの起動確認（ローカル）
     - [x] SingularityのInstall
-    - [ ] Docker HubからImageをPull
-    - [ ] 起動確認
+    - [x] Docker HubからImageをPull
+    - [x] 起動確認
+        - [x] 通常起動
+        - [x] net指定起動
+        - [x] 同時起動`curl http://127.0.0.1:8000/docs`, `curl http://127.0.0.1:7860`
 
 - [ ] 余裕があれば
     - [ ] 追加学習改善
@@ -157,6 +177,13 @@ singularity build transformer-text-gen-service.sif docker-archive://transformer-
 - 停止
     - Ctrl+C, `docker compose down`みたいなCommandはないらしい
     - `ps aux | grep singularity`: Processが残っていないかの確認
+- 動作確認
+    - 別Terminalで両方とも起動 (1つのターミナルで2つ同時に起動すると、1つ目のプロセスがブロックされます)
+    - `sudo singularity run --net --network-args "portmap=8000:8000/tcp" \
+  transformer-text-gen-service_api.sif`
+    - `sudo singularity run --net --network-args "portmap=7860:7860/tcp" \
+  transformer-text-gen-service_gradio.sif`
+    - 
 
 ## Error
 - `api-1  | ImportError: cannot import name 'JapaneseTokenizer' from 'data.tokenizer' (unknown location)`
@@ -197,4 +224,77 @@ singularity build transformer-text-gen-service.sif docker-archive://transformer-
     - .sifがデカすぎてなにか起きていると推測
     - .sifのSizeがapi(9GB)とgradio(16GB)で違う
         - apiのbuildで.sifが作成された後，gradioでapiの.sifをbuildに含めているためと思われる
-        - 少しでも軽量にするため，dockerignoreなるもので.sifを除外する
+        - 少しでも軽量にするため，dockerignoreなるもので.sifを除外する (.dockerignore)
+            - OK, .sif自体も3GB程度になり，VS Code切断も解消
+            - Gitが壊れてしまったため，別Ripositoryに移行することにはなった
+- コンテナに--net と --network-args "portmap=8000:8000/tcp" を使ってホストの 8000 ポートにマッピングして起動ができない
+    - `singularity run --net --network-args "portmap=8000:8000/tcp" \
+  transformer-text-gen-service_api.sif`: NG (管理者権限要求)
+    - `sudo`: NG (`etc/singularity/network`の設定File異常)
+    - .dpkg-new除去Rename: NG (`ModuleNotFoundError: No module named 'app'`)
+    - `--fakeroot` Option指定: NG (iptables 関連のエラー, たぶんInstallを要求)
+    - `singularity run transformer-text-gen-service_api.sif`（--net なし）では正常に起動し、ブラウザからもアクセスできる
+    - `CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]`: NG (`FileNotFoundError: [Errno 2] No such file or directory: 'configs/model_config.yaml'`)
+    - `ENV PYTHONPATH=/code:/code/app`: NG (変わらず)
+    - `CMD`だけ戻す: NG (変わらず)
+    - `ENV`も戻して`COPY configs/ configs/`追加: NG (appなしError)
+    - `ENV PYTHONPATH=/code:/code/app`: NG (変わらずconfigない)
+    - `COPY`を明示的に指定して`. .`でなくapp, configs, data, docker, outputsを指定: NG (変わらず)
+    - `COPY configs/ ./configs/`: NG (変わらず)
+    - Container内のFile存在確認
+        - `singularity exec transformer-text-gen-service_api.sif \
+  ls -la /code/configs`
+            - `model_config.yaml`: ある
+    - Current Directoryを確認
+        - `singularity exec transformer-text-gen-service_api.sif pwd`
+            - `/home/seven/workspace/transformer-text-gen-service-2`
+        - `sudo singularity exec \
+  --net \
+  --network-args "portmap=8000:8000/tcp" \
+  transformer-text-gen-service_api.sif pwd`
+            - `/root`
+        - sudoだとCurrent Directoryが変わる！？
+            - pwd指定だと起動成功: `sudo singularity run \
+  --pwd /code \
+  --net \
+  --network-args "portmap=8000:8000/tcp" \
+  transformer-text-gen-service_api.sif`
+        - 対策：相対パス参照を廃止し、コード位置基準で絶対パスを生成するよう修正
+            - `ROOT_DIR = Path(__file__).resolve().parent.parent`
+        - OK `sudo singularity run \
+  --net \
+  --network-args "portmap=8000:8000/tcp" \
+  transformer-text-gen-service_api.sif`
+- `ERR_CONNECTION_REFUSED (-102)`: 起動はできたっぽいが，Browserから見れない
+    - `INFO: Uvicorn running on http://0.0.0.0:8000`: 起動Logは正常
+    - `http://localhost:8000`: 上記Error
+    - `http://127.0.0.1:8000`: 同様
+    - `curl http://127.0.0.1:8000`
+        - `{"message":"Transformer文章生成API"}`: これはOK
+    - Singularity Network確認: `sudo singularity exec \
+  --net \
+  --network-args "portmap=8000:8000/tcp" \
+  transformer-text-gen-service_api.sif \
+  hostname -I`
+        - `10.22.0.23`
+    - WSL Port確認: `ss -lntp | grep 8000`
+        - 何も表示されない
+    - 利用環境は `Windows -> WSL -> Singularity`
+        - 通常実行時`singularity run`: WSLのNetwork名前空間を共有するため，
+            - Windows Browser -> localhost:8000 -> WSL:8000 -> FastAPI
+            - となり，BrowserからAccess可能
+        - net指定実行時`sudo singularity run --net`: 独立したNetwork名前空間が生成されるらしい
+            - `Windows -> WSL -> Singularity専用Network(CNI Network)`になる
+            - Windows Browser -> localhost:8000  x  WSL localhost:8000(誰もListenしていない)
+            - FastAPIは`0.22.0.23:8000`で待ち受け
+        - WSL内部からの`curl`は成功する
+        - しかし，WindowsのBrowserからのAccessは，WSLのlocalhost転送対象外となるため接続できない
+        - WSLの localhost forwarding は「WSL上で直接待受しているポート」は転送しますが、Singularity が CNI bridge の中に作った仮想ネットワークまでは面倒を見ません らしい
+    - アプリケーション問題ではなく，WSL + Singularity独立ネットワーク構成による挙動だった
+    - `curl`が成功しているため，Containerとしての検証としては動作確認完了でよいものとする
+- `/usr/local/bin/python: can't open file '/root/app/gradio_ui.py': [Errno 2] No such file or directory`
+    - Gradio Container起動時`sudo singularity run --net --network-args "portmap=7860:7860/tcp"   transformer-text-gen-service_gradio.sif`
+    - net指定によるWorkDir違い問題
+    - 実行時Command修正，Moduleとして起動することで，Current Directoryによらないはず
+        - `CMD ["python", "-u", "-m", "app/gradio_ui"]`: NG (Mod実行することでapp を含む親ディレクトリを探す挙動に)
+        - `ENV PYTHONPATH=/code:/code/app`: OK
