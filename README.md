@@ -18,6 +18,8 @@ Transformer decoderのService化
     - `singularity exec transformer-text-gen-service_api.sif pwd`
 - Container動作確認 (応答確認)
     - `curl http://127.0.0.1:8000`
+- EC2 InstanceにSSH接続
+    - `ssh -i ~/.ssh/transformer-key.pem ubuntu@13.211.147.83`
 
 ## 進捗
 - [x] setup (docker/Dockerfile, docker/requirements.txt, docker-compose.yml)
@@ -55,7 +57,26 @@ Transformer decoderのService化
         - [x] 通常起動
         - [x] net指定起動
         - [x] 同時起動`curl http://127.0.0.1:8000/docs`, `curl http://127.0.0.1:7860`
-
+- [ ] Cloudで実行
+    - [x] AWS Account準備
+    - [x] EC2 Instanceの作成 13.211.147.83
+    - [x] EC2へのSSH接続
+    - [x] Singularity(が無理だったのでApptainer)のInstall
+    - [x] ローカルから .sif を EC2 に転送（scp）
+    - [x] Apptainer Containerの起動
+    - [x] 動作確認 (FastAPI/Gradio)
+        - [x] `curl http://127.0.0.1:8000/docs`
+        - [x] Browser`http://13.211.177.118:7860/`
+        - [x] Browser`http://13.211.177.118:8000/docs`
+        - [x] 同時起動
+        - [x] `/generator`End PointのTest
+        - [x] Smart phoneのテザリングでAccess
+        - [x] Smart phoneからAccess
+- [ ] HTTPS 化
+    - [ ] ACM で SSL 証明書を発行
+    - [ ] CloudFront でディストリビューションを作成
+    - [ ] Route 53 でドメインを CloudFront に紐付け
+    - [ ] https://text-gen.example.com で Gradio にアクセス可能
 - [ ] 余裕があれば
     - [ ] 追加学習改善
     - [ ] Dockerfileを分けたときに，Gradioの標準出力？が出なくなったものの分析
@@ -183,7 +204,75 @@ singularity build transformer-text-gen-service.sif docker-archive://transformer-
   transformer-text-gen-service_api.sif`
     - `sudo singularity run --net --network-args "portmap=7860:7860/tcp" \
   transformer-text-gen-service_gradio.sif`
-    - 
+    - `curl`で確認
+- 独立Network起動 (--net)
+    - `sudo singularity run --net --network-args "portmap=8000:8000/tcp" transformer-text-gen-service_api.sif`
+    - `--net`: Networkの隔離
+        - 通常起動だと，NetworkはWSLと共有
+        - net指定によりSingularity専用Networkで実行できる
+        - WSLとは別のネットワーク名前空間(Network Namespace)が作られる
+    - `--nerwark-args`: ネットワーク作成時の追加オプション
+        - `--net`で困ること: FastAPIは`0.0.0.0:8000`で待ち受けるが，実際には`10.22.0.23:8000`のような専用NICで待ち受け
+        - (NIC: Network Interface Card)
+            - もともとは、PCをネットワークに接続するためのハードウェアのこと
+            - 最近では物理カードだけでなく、IPアドレスを持つネットワーク接続口全般をNICと呼ぶことが多い
+        - つまり，Windowsから`localhost:8000`へ行ってもFastAPIは見えない
+        - そこで`portmap`
+            - `--network-args "portmap=8000:8000/tcp"`
+            - `WSL:8000` -> `Singularity:8000`というPort転送を作る
+            - (Dockerなら`docker run -p 8000:8000`みたいな)
+        - `portmap`のほかにも，`IP固定`, `MTU`, `MACアドレス`など指定できるらしい
+    - 通常起動だと，WSL Networkをそのまま使っているので，コンテナが本当に独立して動けるかが検証しきれていない
+    - そのためこれを用いることで，完全に独立した環境での確認を行った
+#### AWS EC2
+- EC2 InstanceにSSH接続
+- SingularityのInstall
+    - yum: Red Hat 系 Linux（Amazon Linux もその仲間）で使われるパッケージ管理ツール
+- 自分のIPが変わるとSSH接続ができなくなるので注意
+- SCPで.sif転送
+    - LocalでScreen sessionを開始
+    - `scp -i ~/.ssh/transformer-key.pem transformer-text-gen-service_api.sif ubuntu@3.25.234.172:/home/ubuntu/`
+    - 転送中に SSH 接続が切れても大丈夫なようにデタッチ
+    - 必要に応じて再接続して進捗確認
+- Cloudで実行：次の手順（Apptainer 起動 + 動作確認）
+    - EC2でScreen session開始
+#### Screen/tmux
+- terminal multiplexer
+- 1つのターミナルウィンドウの中で、複数の「タブ」や「ペイン」を切り替えたり、バックグラウンドでプロセスを動かし続けたりできます
+- SSH 接続が切れても、裏で動かしている処理が終わらないようにする「デタッチ（切り離し）」機能が便利
+- Scteen
+    - 古くからあるツールで、多くの Linux ディストリビューションに標準で入っています
+    - 長時間かかる処理（例：大きなファイルの転送、ビルド、トレーニング）をバックグラウンドで動かし続ける
+    - SSH 接続が切れても処理を続けたいとき
+    - `screen -S scp_session`: 新しい Screen セッションを開始（名前付き）
+    - `Ctrl + a` を押してから `d` を押す
+        - セッションから「デタッチ」（切り離し）する
+            - `[detached from 6015.scp_session]`
+            - セッションをバックグラウンドに退避できます（SSH 接続が切れても処理は続きます）
+    - `screen -ls`: デタッチしたセッションの一覧を表示
+    - `screen -r scp_session`: 特定のセッションに再接続（アタッチ）
+    - やりたい処理が完了し，Sessionの役目を終えたら
+        - 基本は放置でOK
+        - Screen セッションは、中で動いているプロセス（この場合は scp）が終了すると、実質的に「終了状態」になります
+        - ただし、Screen の管理上は「終了したセッション」として一覧に`(Dead ???)` のように表示されることがあります
+        - メモリやリソースを消費していないため実害はほぼないが、一覧が煩雑になるのが気になる場合は明示的に終了してもよい
+            - セッションに再接続してから、`exit` または `Ctrl + d`
+
+- tmux
+    - screen の後継的な存在で、より高機能
+- なぜ？
+    - .sif の転送（scp）や Apptainer の起動は、数分〜数十分かかることがある
+    - その間に SSH 接続が切れると、処理が中断されるが，screen や tmux を使うと、接続が切れても裏で処理が続くので安心
+#### FastAPI Document
+- `\generator`End PointのTest
+    0. `http://13.211.177.118:8000/docs`
+    1. /generate エンドポイントをクリック  
+    2. 「Try it out」ボタンをクリック  
+    3. text パラメータに生成したいテキストを入力（例："こんにちは"）  
+    4. 「Execute」ボタンをクリック  
+    5. 「Response body」に生成されたテキストが表示される
+#### ACM（AWS Certificate Manager）
+- 「このドメインは本当にあなたのものですか？」を確認してから証明書を発行
 
 ## Error
 - `api-1  | ImportError: cannot import name 'JapaneseTokenizer' from 'data.tokenizer' (unknown location)`
@@ -298,3 +387,44 @@ singularity build transformer-text-gen-service.sif docker-archive://transformer-
     - 実行時Command修正，Moduleとして起動することで，Current Directoryによらないはず
         - `CMD ["python", "-u", "-m", "app/gradio_ui"]`: NG (Mod実行することでapp を含む親ディレクトリを探す挙動に)
         - `ENV PYTHONPATH=/code:/code/app`: OK
+- `No match for argument: singularity`
+    - EC2でSingularity Install時`sudo yum install -y singularity`
+    - Amazon Linux 2023 のデフォルトリポジトリに singularity パッケージが含まれていないことを意味
+    - EPEL（Extra Packages for Enterprise Linux） という追加リポジトリを有効にすると、singularity がインストールできるようになります
+        - NG (`Error: Unable to find a match: epel-release`)
+    - Singularity の公式 RPM を直接インストールする
+        - `sudo yum install -y openssl-devel libuuid-devel libseccomp-devel wget squashfs-tools`
+        - `sudo yum install -y golang`
+        - Amazon Linux 2023 と互換性のある RPM を探します
+            - Amazon Linux 2023 は RHEL 9 系互換なので、「RHEL/CentOS/AlmaLinux/Rocky 9 (el9)」用の RPM が最も互換性が高い
+        - RPM をダウンロード`wget https://github.com/sylabs/singularity/releases/download/v4.4.2/singularity-ce-4.4.2-1.el9.x86_64.rpm`
+        - Install`sudo rpm -ivh singularity-ce-4.4.2-1.el9.x86_64.rpm`
+            - `error: Failed dependencies:`
+                -  Singularity が動くために必要なパッケージがまだ入っていないだけ
+    - Amazon LinuxじゃなくてUbuntuでInstanceを作り直す
+        - `Ubuntu 22.04 LTS - Jammy`
+        - 起動
+        - SSH接続`ssh -i transformer-key.pem ubuntu@13.211.147.83`
+        - `sudo apt update`
+        - `sudo apt install -y wget build-essential libssl-dev libuuid-dev libseccomp-dev pkg-config squashfs-tools cryptsetup`
+            - `E: Unable to locate package libuuid-dev`: Package名が違うだけ
+        - `sudo apt install -y wget build-essential libssl-dev uuid-dev libseccomp-dev pkg-config squashfs-tools cryptsetup`
+        - `VERSION=4.4.2`
+        - `get https://github.com/sylabs/singularity/releases/download/v${VERSION}/singularity-ce-${VERSION}.tar.gz`
+        - `tar -xzf singularity-ce-${VERSION}.tar.gz`
+        - `cd singularity-ce-${VERSION}`
+        - `./mconfig`
+            - NG(Goがない)`checking: host Go compiler (at least version 1.25)... not found!`
+            - `wget https://go.dev/dl/go1.22.5.linux-amd64.tar.gz`
+            - `sudo tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz`
+            - `echo 'export PATH=/usr/local/go/bin:$PATH' >> ~/.bashrc`
+            - `source ~/.bashrc`
+            - `go version`: OK
+            - `./mconfig`: NG(変わらず)
+        - 無理，Apptainer入れてみる
+            - `sudo apt update`
+            - `sudo apt install -y software-properties-common`
+            - `sudo add-apt-repository -y ppa:apptainer/ppa`
+            - `sudo apt update`
+            - `sudo apt install -y apptainer`
+            - OK`apptainer --version`, `singularity --version`
