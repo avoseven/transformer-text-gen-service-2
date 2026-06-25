@@ -1,25 +1,58 @@
 # transformer-text-gen-service
-Transformer decoderのService化
+Transformer文章生成モデルのWebサービス化とクラウドデプロイ
 
-## Command
-- Singularity Container更新Flow
-    - Build
+## 概要
+- Transformer Decoderを用いた文章生成ModelをCloud DeployしてWeb Serviceとして公開する
+- FastAPIによるAPI化とGradioによるWeb UI化を行う
+- Docker ImageをBuildし，Singularity / ApptainerでContainer化する
+- AWS EC2にDeployし，外部からの利用を可能にする
+
+## Singularity Container
+- ### 作成
+    1. Docker imageをBuild
         - `docker build -t avoseven/transformer-text-gen-service:api -f docker/Dockerfile.api .`
-    - Push
+    2. Docker HubにImageをPush
         - `docker push avoseven/transformer-text-gen-service:api`
-    - Pull
+    3. Docker ImageをSingularityでPullして.sif Fileを取得
         - `singularity pull --force docker://avoseven/transformer-text-gen-service:api`
-- 起動
+- ### 起動
     - 通常起動
         - `singularity run transformer-text-gen-service_api.sif`
     - net指定起動
         - `sudo singularity run --net --network-args "portmap=8000:8000/tcp"   transformer-text-gen-service_api.sif`
-- pwd
-    - `singularity exec transformer-text-gen-service_api.sif pwd`
-- Container動作確認 (応答確認)
+- ### Container動作確認 (応答確認)
     - `curl http://127.0.0.1:8000`
-- EC2 InstanceにSSH接続
+
+## Cloud Deploy
+- ### AWS EC2
+    - Instance Type: t3.small (microだと重すぎて厳しい)
+    - OS: Ubuntu 22.04 LTS (aws-marketplace/ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-20260610-47489723-7305-4e22-8b22-b0d57054f216)
+    - Security Group:
+        - SSH / TCP / Port: 22 / Source: 自分のIP
+        - Custom TCP / TCP / Port: 8000 / source: 0.0.0.0/0 (For FastAIP)
+        - Custom TCP / TCP / Port: 7860 / source: 0.0.0.0/0 (For Gradio)
+- ### Deploy
+    #### 1. EC2 Instance起動
+    #### 2. SSH接続 (キーペア)
     - `ssh -i ~/.ssh/transformer-key.pem ubuntu@13.211.147.83`
+    #### 3. ApptainerのInstall (Singularityより簡単にできて互換性があるため)
+    #### 4. ローカルから .sif を EC2 に転送（scp）
+    1. Screen セッションを開始
+        - `screen -S scp_session`
+        - SSH 接続が切れても、裏で動かしている処理が終わらないようにするため
+    2. 転送
+        - `scp -i ~/.ssh/transformer-key.pem transformer-text-gen-service_api.sif ubuntu@3.25.234.172:/home/ubuntu/`
+    3. 転送中に SSH 接続が切れても大丈夫なようにデタッチ, 必要に応じて再接続して進捗確認
+    #### 5. Containerの起動
+    - `sudo singularity run --net --network-args "portmap=8000:8000/tcp"   transformer-text-gen-service_api.sif`
+    #### 6. 外部からのAccessを確認
+    - 応答確認: `curl http://127.0.0.1:8000/docs`
+    - BrowserでGradio: `http://<EC2のPublic IP>:7860/` (例: `http://13.211.177.118:7860/`)
+    - BrowserでFastAPI: `http://<EC2のPublic IP>:8000/docs`
+    - テザリングでAccess
+    - Smart PhoneからAccess
+
+---
 
 ## 進捗
 - [x] setup (docker/Dockerfile, docker/requirements.txt, docker-compose.yml)
@@ -57,7 +90,7 @@ Transformer decoderのService化
         - [x] 通常起動
         - [x] net指定起動
         - [x] 同時起動`curl http://127.0.0.1:8000/docs`, `curl http://127.0.0.1:7860`
-- [ ] Cloudで実行
+- [x] Cloudで実行
     - [x] AWS Account準備
     - [x] EC2 Instanceの作成 13.211.147.83
     - [x] EC2へのSSH接続
@@ -86,6 +119,10 @@ Transformer decoderのService化
 
 
 ## memo
+
+#### Command
+- pwd
+    - `singularity exec transformer-text-gen-service_api.sif pwd`
 
 #### FastAPI
 - Root: 「どのURLにアクセスしたときに、どの処理を実行するか」を決めるもの
