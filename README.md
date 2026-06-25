@@ -7,7 +7,32 @@ Transformer文章生成モデルのWebサービス化とクラウドデプロイ
 - Docker ImageをBuildし，Singularity / ApptainerでContainer化する
 - AWS EC2にDeployし，外部からの利用を可能にする
 
-## Singularity Container
+## Web Service化 (FastAPI / Gradio)
+- ### FastAPI
+    - FastAPI Serverは `app/main.py` に実装，以下のEnd Pointを提供
+    1. `GET /`：Health Check用（"Hello World" を返す）
+    2. `POST /generate`：文章生成 API
+- Request例（curl）
+```bash
+curl -X POST "http://localhost:8000/generate" -H "Content-Type: application/json" \
+-d '{"prompt": "私は", "max_length": 50}'
+```
+- Response例
+```bash
+{
+  "prompt": "私は",
+  "generated_text": "私はこの“男は別れる”とは? なぜ“女\"いい”をあらわれたことも、女友達と感じる。女が心行かれたりばり、仕事にくことから誘われていたら、なかなか私より友",
+  "temperature": 1.0,
+  "top_k": 50
+}
+```
+- ### Gradio UI
+    - Gradio による Web UI は `app/gradio.py` に実装, ブラウザからプロンプトを入力すると、文章の続きを生成
+    - 入力：プロンプト（テキストボックス）、max_length、temperature、top_k（スライダー）
+    - 出力：生成された文章（テキストボックス）
+- FastAPI による API と Gradio による UI の両方を実装することで、モデルを「ツールとして利用できる形」にしています
+
+## Container化 (Singularity / Apptainer)
 - ### 作成
     1. Docker imageをBuild
         - `docker build -t avoseven/transformer-text-gen-service:api -f docker/Dockerfile.api .`
@@ -23,7 +48,7 @@ Transformer文章生成モデルのWebサービス化とクラウドデプロイ
 - ### Container動作確認 (応答確認)
     - `curl http://127.0.0.1:8000`
 
-## Cloud Deploy
+## Cloud Deployと外部Accessの確認
 - ### AWS EC2
     - Instance Type: t3.small (microだと重すぎて厳しい)
     - OS: Ubuntu 22.04 LTS (aws-marketplace/ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-20260610-47489723-7305-4e22-8b22-b0d57054f216)
@@ -52,9 +77,43 @@ Transformer文章生成モデルのWebサービス化とクラウドデプロイ
     - テザリングでAccess
     - Smart PhoneからAccess
 
----
+## Directory構成
+.
+├── README.md
+├── app
+│   ├── data
+│   │   ├── __init__.py
+│   │   └── tokenizer.py    # Tokenizer
+│   ├── generate.py         # 生成器
+│   ├── gradio_ui.py        # Gradio UI
+│   ├── main.py             # FastAPI
+│   ├── models
+│   │   ├── __init__.py
+│   │   └── transformer.py  # 自前のTransformer Model
+│   └── utils.py            # 共通処理 (Model loadなど)
+├── configs
+│   └── model_config.yaml   # 設定 (Model, 学習, Path)
+├── data
+│   └── tokenizer
+│       └── news_spm.model  # Tokenizer用spm
+├── docker
+│   ├── Dockerfile
+│   ├── Dockerfile.api      # FastAPI用
+│   ├── Dockerfile.gradio   # Gradio UI用
+│   └── requirements.txt
+├── docker-compose.yml
+├── flagged                 # UIで生成例を保存
+│   └── log.csv
+├── outputs
+│   └── checkpoints
+│       └── ckpt_final.pt   # 保存されたModel
+├── transformer-text-gen-service_api.sif
+└── transformer-text-gen-service_gradio.sif
 
-## 進捗
+---
+## memo
+
+### 進捗
 - [x] setup (docker/Dockerfile, docker/requirements.txt, docker-compose.yml)
 - [x] FastAPI Server動作確認
     - [x] main.py (最小Sample)
@@ -116,9 +175,6 @@ Transformer文章生成モデルのWebサービス化とクラウドデプロイ
         - 起動時の`api-1  | INFO:     Will watch for changes in these directories: ['/code']`系のやつがGradioだけ出なくなった
         - `docker compose logs gradio`で何も出ない
         - Gradioの起動CMDに"-u"Optionを指定したら以前とは異なるが何かしら出力されるようにはなった`CMD ["python", "-u", "app/gradio_ui.py"]`
-
-
-## memo
 
 #### Command
 - pwd
@@ -311,7 +367,7 @@ singularity build transformer-text-gen-service.sif docker-archive://transformer-
 #### ACM（AWS Certificate Manager）
 - 「このドメインは本当にあなたのものですか？」を確認してから証明書を発行
 
-## Error
+### Error
 - `api-1  | ImportError: cannot import name 'JapaneseTokenizer' from 'data.tokenizer' (unknown location)`
     - importできない問題
     - app.data.tokenizerで行けるが，前Projectや生成コマンドで動いていた状態から変えたくない
