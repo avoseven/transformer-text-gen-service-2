@@ -29,8 +29,6 @@ curl -X POST "http://localhost:8000/generate" -H "Content-Type: application/json
 
 ![FastAPI Docs](./docs/images/fastAPI.png)
 
-<img src="./docs/images/fastAPI.png" alt="Top画面" width="600" style="border: 2px solid white;" />
-
 - ### Gradio UI
     - Gradio による Web UI は `app/gradio.py` に実装, ブラウザからプロンプトを入力すると、文章の続きを生成
     - 入力：プロンプト（テキストボックス）、max_length、temperature、top_k（スライダー）
