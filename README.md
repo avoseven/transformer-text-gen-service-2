@@ -26,11 +26,18 @@ curl -X POST "http://localhost:8000/generate" -H "Content-Type: application/json
   "top_k": 50
 }
 ```
+
+![FastAPI Docs](./docs/images/fastAPI.png)
+
+<img src="./docs/images/fastAPI.png" alt="Top画面" width="600" style="border: 2px solid white;" />
+
 - ### Gradio UI
     - Gradio による Web UI は `app/gradio.py` に実装, ブラウザからプロンプトを入力すると、文章の続きを生成
     - 入力：プロンプト（テキストボックス）、max_length、temperature、top_k（スライダー）
     - 出力：生成された文章（テキストボックス）
 - FastAPI による API と Gradio による UI の両方を実装することで、モデルを「ツールとして利用できる形」にしています
+
+![Gradio UI](./docs/images/gradio.png)
 
 ## Container化 (Singularity / Apptainer)
 - ### 作成
@@ -109,3 +116,7 @@ curl -X POST "http://localhost:8000/generate" -H "Content-Type: application/json
 │       └── ckpt_final.pt   # 保存されたModel
 ├── transformer-text-gen-service_api.sif
 └── transformer-text-gen-service_gradio.sif
+
+## メモ・トラブルシューティング
+
+メモやトラブルシューティングの記録は [docs/MEMO.md](./docs/MEMO.md) 
